@@ -28,8 +28,8 @@ AgentChatUI.jsx — React 单文件，可直接在支持 JSX 的环境预览。
 
 ## 重要提醒
 
-- 涉及 Agent SDK 具体参数名的内容以 claude-agent-sdk==0.2.110 为基准，升级前过契约测试。
+- 涉及 Agent SDK 具体参数名的内容以 claude-agent-sdk==0.2.87 为基准，升级前过契约测试。
+- python版本使用 3.12
 - allowed_tools 是自动放行白名单而非工具裁剪，禁用工具必须用 disallowed_tools。
 - hooks 与自定义工具需 ClaudeSDKClient，简单 query() 不支持。
 - 对外提供服务必须走 API key 认证计费。
-- 早期版本存档/ 内为 01-09 系列成型前的两版旧文档，仅供追溯，内容已被取代。
