@@ -22,7 +22,8 @@ GET    /threads/{id}/branches            → 分支树(版本切换用)
 POST   /threads/{id}/head                {branch_id}  切换展示分支
 
 POST   /threads/{id}/messages            发送消息(异步, 内容走 SSE, 见 §6)
-  body: {text, attachments?: [id], model?, thinking?: bool,
+  body: {text, attachment_ids?: [id]   # 暂存附件随本次发送转正纳入上下文(见10文档),
+         model?, thinking?: bool,
          tools_override?: {web_search?: bool}, permission_mode?}
   → {run_id, branch_id, message_id}
 
@@ -59,6 +60,9 @@ GET/POST/PATCH/DELETE /mcp-servers       config中敏感字段回显打码
 POST   /mcp-servers/{id}/test            连通性检查
 
 POST   /threads/{id}/attachments         multipart 上传 → {attachment_id}
+  选择文件即调用, 落暂存区 staged=true; 不随消息提交则不进上下文, 24h 后清理
+DELETE /attachments/{id}                 移除暂存件(仅 staged=true 可删)
+POST   /messages/{id}/feedback           {rating: up|down|null} 点赞点踩(见10文档)
 GET    /threads/{id}/files?path=         工作区文件树(限深/限量, 懒加载子目录)
 GET    /threads/{id}/files/content?path= 文本预览: 返回 {content, mime, truncated}
   文本类 ≤256KB 全量返回; 超限 truncated=true 且只返回前 64KB; 二进制返回 415 引导下载

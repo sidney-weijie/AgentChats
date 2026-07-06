@@ -218,6 +218,13 @@ const I = {
   gauge: "M12 21a9 9 0 110-18 9 9 0 010 18zM12 12l4-4",
   folder: "M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z",
   file: "M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6zM14 2v6h6",
+  copy: "M20 9h-9a2 2 0 00-2 2v9a2 2 0 002 2h9a2 2 0 002-2v-9a2 2 0 00-2-2zM5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1",
+  download: "M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3",
+  thumbUp: "M14 9V5a3 3 0 00-3-3l-4 9v11h11.28a2 2 0 002-1.7l1.38-9a2 2 0 00-2-2.3zM7 22H4a2 2 0 01-2-2v-7a2 2 0 012-2h3",
+  thumbDown: "M10 15v4a3 3 0 003 3l4-9V2H5.72a2 2 0 00-2 1.7l-1.38 9a2 2 0 002 2.3zM17 2h3a2 2 0 012 2v7a2 2 0 01-2 2h-3",
+  refresh: "M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15",
+  clip: "M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48",
+  image: "M19 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 00-2-2zM8.5 10a1.5 1.5 0 100-3 1.5 1.5 0 000 3zM21 15l-5-5L5 21",
 };
 
 /* ---------------- 通用小组件 ---------------- */
@@ -314,6 +321,44 @@ function ApprovalCard({ req, onDecide }) {
   );
 }
 
+/* ---------------- 附件缩略图（暂存区与消息气泡共用） ----------------
+   kind: file / image / paste(长文本粘贴)。paste 显示内容缩略，模拟 claude.ai 的 PASTED 卡片 */
+function AttachmentChip({ att, onRemove }) {
+  const isPaste = att.kind === "paste";
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8,
+      background: T.white, border: `1px solid ${T.borderSoft}`, borderRadius: 9,
+      padding: isPaste ? "7px 10px" : "6px 10px", maxWidth: 240 }}>
+      {isPaste ? (
+        <div style={{ width: 34, height: 40, background: T.surface, flexShrink: 0,
+          border: `1px solid ${T.borderSoft}`, borderRadius: 4, padding: "3px 4px",
+          overflow: "hidden", fontSize: 4.5, lineHeight: 1.5, color: T.faint,
+          fontFamily: T.mono, whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
+          {att.preview}
+        </div>
+      ) : (
+        <span style={{ color: T.accent, flexShrink: 0 }}>
+          <Icon d={att.kind === "image" ? I.image : I.file} size={16} />
+        </span>
+      )}
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 12, color: T.text, fontWeight: 500, overflow: "hidden",
+          textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{att.name}</div>
+        <div style={{ fontSize: 10.5, color: T.faint }}>
+          {isPaste ? `粘贴文本 · ${att.chars} 字符` : att.size}
+        </div>
+      </div>
+      {onRemove && (
+        <button onClick={onRemove} aria-label={`移除 ${att.name}`}
+          style={{ background: "none", border: "none", color: T.faint, cursor: "pointer",
+            display: "flex", padding: 2, marginLeft: "auto", flexShrink: 0 }}>
+          <Icon d={I.x} size={12} />
+        </button>
+      )}
+    </div>
+  );
+}
+
 /* ---------------- 消息渲染 ---------------- */
 function renderInline(text) {
   const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
@@ -344,16 +389,43 @@ function Caret() {
   return <span className="ac-caret" style={{ display: "inline-block", width: 7, height: 15,
     background: T.accent, marginLeft: 2, verticalAlign: "text-bottom" }} />;
 }
-function Message({ msg, onDecide, features }) {
+function Message({ msg, onDecide, features, isLast, onRegenerate, onFeedback, canRegen }) {
   const isUser = msg.role === "user";
+  const textOf = () => msg.parts.filter(p => p.type === "text").map(p => p.text).join("\n");
+  const copyMsg = () => navigator.clipboard?.writeText(textOf());
+  const downloadMsg = () => {
+    const blob = new Blob([textOf()], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "claude-回复.md"; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 500);
+  };
+  const actBtn = (title, icon, onClick, active, activeColor) => (
+    <button onClick={onClick} title={title} aria-label={title}
+      style={{ background: "none", border: "none", cursor: "pointer", padding: 5,
+        borderRadius: 6, display: "flex",
+        color: active ? (activeColor || T.accent) : T.faint }}>
+      <Icon d={icon} size={14} />
+    </button>
+  );
   return (
     <div style={{ display: "flex", flexDirection: "column",
       alignItems: isUser ? "flex-end" : "stretch", margin: "18px 0" }}>
       {isUser ? (
-        <div style={{ maxWidth: "78%", background: T.userBubble,
-          borderRadius: "14px 14px 4px 14px", padding: "10px 15px", color: T.text,
-          fontSize: 14.5, lineHeight: 1.65, whiteSpace: "pre-wrap" }}>
-          {msg.parts.map(p => p.text).join("")}
+        <div style={{ maxWidth: "78%", display: "flex", flexDirection: "column",
+          alignItems: "flex-end", gap: 6 }}>
+          {msg.attachments?.length > 0 && (
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+              {msg.attachments.map(a => <AttachmentChip key={a.id} att={a} />)}
+            </div>
+          )}
+          {textOf() && (
+            <div style={{ background: T.userBubble,
+              borderRadius: "14px 14px 4px 14px", padding: "10px 15px", color: T.text,
+              fontSize: 14.5, lineHeight: 1.65, whiteSpace: "pre-wrap" }}>
+              {textOf()}
+            </div>
+          )}
         </div>
       ) : (
         <div style={{ width: "100%" }}>
@@ -366,10 +438,31 @@ function Message({ msg, onDecide, features }) {
             if (p.type === "approval") return <ApprovalCard key={i} req={p} onDecide={onDecide} />;
             return null;
           })}
-          {msg.usage && features.show_tokens && (
+          {/* 操作栏: 生成完成后出现（流式中不显示） */}
+          {onFeedback && msg.parts.some(p => p.type === "text" && !p.streaming) &&
+           !msg.parts.some(p => p.streaming) && (
+            <div style={{ display: "flex", alignItems: "center", gap: 2, marginTop: 6 }}>
+              {actBtn("复制", I.copy, copyMsg)}
+              {actBtn("下载为 Markdown", I.download, downloadMsg)}
+              {actBtn("有帮助", I.thumbUp,
+                () => onFeedback(msg.id, msg.feedback === "up" ? null : "up"),
+                msg.feedback === "up", T.green)}
+              {actBtn("没帮助", I.thumbDown,
+                () => onFeedback(msg.id, msg.feedback === "down" ? null : "down"),
+                msg.feedback === "down", T.red)}
+              {isLast && canRegen && actBtn("重新生成", I.refresh, onRegenerate)}
+              {msg.usage && features.show_tokens && (
+                <span style={{ marginLeft: 8, fontSize: 11.5, color: T.faint, fontFamily: T.mono }}>
+                  {msg.usage.tokens} tokens
+                  {features.show_cost && msg.usage.cost ? ` · ${msg.usage.cost}` : ""}
+                </span>
+              )}
+            </div>
+          )}
+          {/* 无操作栏场景(组空间只读)下的用量展示 */}
+          {!onFeedback && msg.usage && features.show_tokens && (
             <div style={{ marginTop: 8, fontSize: 11.5, color: T.faint, fontFamily: T.mono }}>
               {msg.usage.tokens} tokens
-              {features.show_cost && msg.usage.cost ? ` · ${msg.usage.cost}` : ""}
             </div>
           )}
         </div>
@@ -1103,6 +1196,10 @@ export default function AgentChat() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sideOpen, setSideOpen] = useState(true);
   const [todayTokens, setTodayTokens] = useState(182300);
+  const [pending, setPending] = useState([]);           // 暂存附件: 发送时才纳入上下文
+  const [plusOpen, setPlusOpen] = useState(false);      // ＋ 附件菜单
+  const [plusView, setPlusView] = useState("main");     // 菜单层级: main | skills
+  const fileInputRef = useRef(null);
   const scrollRef = useRef(null);
   const timersRef = useRef([]);
   const pausedRef = useRef(null);
@@ -1165,17 +1262,23 @@ export default function AgentChat() {
     });
   };
 
-  /* 模拟一次 run：真实环境 = POST /messages 拿 run_id，再 fetch 读 SSE 流逐事件 applyEvent。
-     所有事件写入都绑定发起时的 tid——用户切走会话后，流继续写入原会话（与后端行为一致）。 */
-  const send = (textArg) => {
-    const text = (textArg ?? input).trim();
+  /* 核心执行。appendUser=false 为"重新生成"：不追加用户消息，丢弃最后一条助手回复重跑。
+     attachments: 发送时才纳入消息与上下文（真实环境: 上传接口只做暂存 staged=true,
+     POST /messages 携带 attachment_ids 才转正; 未随消息提交的暂存件不进上下文, 定期清理） */
+  const startRun = (tid, text, { appendUser = true, attachments = [] } = {}) => {
     if (!text || runningTid) return;
-    const tid = activeId;                              // 绑定发起线程
-    setInput(""); setRunningTid(tid);
-    setMessagesMap(m => ({ ...m, [tid]: [...(m[tid] || []),
-      { id: "u" + Date.now(), role: "user", parts: [{ type: "text", text }] },
-      { id: "a" + Date.now(), role: "assistant", parts: [] },
-    ]}));
+    setRunningTid(tid);
+    setMessagesMap(m => {
+      let list = [...(m[tid] || [])];
+      if (appendUser) {
+        list.push({ id: "u" + Date.now(), role: "user",
+          parts: [{ type: "text", text }], attachments });
+      } else if (list.length && list[list.length - 1].role === "assistant") {
+        list = list.slice(0, -1);                       // 重新生成: 丢弃旧回复
+      }
+      list.push({ id: "a" + Date.now(), role: "assistant", parts: [] });
+      return { ...m, [tid]: list };
+    });
     const script = mockApi.runScript(text);
     let delay = 0;
     const schedule = (fromIdx) => {
@@ -1228,6 +1331,55 @@ export default function AgentChat() {
           status: "completed", usage: { tokens: "1.9k" } }), 900));
       }
     };
+  };
+
+  const send = (textArg) => {
+    const text = (textArg ?? input).trim();
+    if ((!text && !pending.length) || runningTid) return;
+    const atts = pending;
+    setPending([]); setInput("");                       // 暂存件随本次发送转正
+    startRun(activeId, text || "（见附件）", { attachments: atts });
+  };
+
+  /* 重新生成最后一条回复（真实环境: POST .../messages/{mid}/regenerate → fork 新分支） */
+  const regenerate = () => {
+    if (runningTid) return;
+    const list = messagesMap[activeId] || [];
+    const lastUser = [...list].reverse().find(m => m.role === "user");
+    if (!lastUser) return;
+    startRun(activeId, lastUser.parts.map(p => p.text).join(""), { appendUser: false });
+  };
+
+  /* 点赞/点踩（真实环境: POST /messages/{id}/feedback {rating} 落库供质量分析） */
+  const setFeedback = (msgId, val) => {
+    setMessagesMap(m => ({ ...m, [activeId]: (m[activeId] || []).map(msg =>
+      msg.id === msgId ? { ...msg, feedback: val } : msg) }));
+  };
+
+  /* 选择文件 → 仅进暂存区（真实环境: 立即 POST /threads/{id}/attachments 得 id,
+     标记 staged; 展示与删除都只操作暂存, 发送时携带 id 才纳入上下文） */
+  const addFiles = (fileList) => {
+    const items = Array.from(fileList).map(f => ({
+      id: "att" + Date.now() + Math.random().toString(36).slice(2, 6),
+      kind: f.type.startsWith("image/") ? "image" : "file",
+      name: f.name,
+      size: f.size > 1048576 ? (f.size / 1048576).toFixed(1) + " MB"
+           : (f.size / 1024).toFixed(0) + " KB",
+    }));
+    setPending(p => [...p, ...items]);
+  };
+
+  /* 粘贴长文本 → 转为缩略图附件而不是塞满输入框（阈值 600 字符） */
+  const onPaste = (e) => {
+    const text = e.clipboardData?.getData("text") || "";
+    if (text.length > 600) {
+      e.preventDefault();
+      setPending(p => [...p, {
+        id: "att" + Date.now(), kind: "paste",
+        name: "粘贴的文本", chars: text.length,
+        preview: text.slice(0, 160), content: text,
+      }]);
+    }
   };
 
   /* 停止：可停止任意正在生成的会话（含已切走的后台会话）。
@@ -1445,8 +1597,12 @@ export default function AgentChat() {
                 </div>
               </div>
             )}
-            {messages.map(msg => (
+            {messages.map((msg, i) => (
               <Message key={msg.id} msg={msg} features={features}
+                isLast={i === messages.length - 1}
+                canRegen={!runningTid && messages.some(m => m.role === "user")}
+                onRegenerate={regenerate}
+                onFeedback={setFeedback}
                 onDecide={(d, r) => window.__acDecide && window.__acDecide(d, r)} />
             ))}
           </div>
@@ -1458,13 +1614,101 @@ export default function AgentChat() {
             {slashQuery !== null && <SlashPalette query={slashQuery} onPick={pickCommand} />}
             <div style={{ background: T.white, border: `1px solid ${T.border}`, borderRadius: 16,
               padding: "11px 13px 9px", boxShadow: "0 2px 10px rgba(61,57,41,0.06)" }}>
+              {/* 暂存附件区: 仅展示, 发送时才纳入上下文; 移除或不发送则不生效 */}
+              {pending.length > 0 && (
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+                  {pending.map(a => (
+                    <AttachmentChip key={a.id} att={a}
+                      onRemove={() => setPending(p => p.filter(x => x.id !== a.id))} />
+                  ))}
+                </div>
+              )}
               <textarea rows={2} value={input} placeholder="向 Claude 描述任务，或输入 / 调用命令…"
                 aria-label="消息输入"
                 onChange={e => setInput(e.target.value)}
+                onPaste={onPaste}
                 onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
                 style={{ width: "100%", background: "none", border: "none", color: T.text,
                   fontSize: 14.5, lineHeight: 1.6, fontFamily: T.sans, outline: "none" }} />
               <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 4, flexWrap: "wrap" }}>
+                {/* ＋ 附件与快捷菜单（两级: 主菜单 → Skills 二级面板） */}
+                <div style={{ position: "relative" }}>
+                  <input ref={fileInputRef} type="file" multiple style={{ display: "none" }}
+                    onChange={e => { addFiles(e.target.files); e.target.value = ""; setPlusOpen(false); }} />
+                  <button onClick={() => { setPlusOpen(!plusOpen); setPlusView("main"); }}
+                    aria-label="添加附件或使用 Skill" aria-expanded={plusOpen}
+                    style={{ display: "flex", alignItems: "center", justifyContent: "center",
+                      width: 30, height: 30, background: plusOpen ? T.accentDim : T.surface,
+                      border: `1px solid ${plusOpen ? T.accent : T.borderSoft}`, borderRadius: 8,
+                      color: plusOpen ? T.accent : T.dim, cursor: "pointer" }}>
+                    <Icon d={I.plus} size={15} />
+                  </button>
+                  {plusOpen && (
+                    <div style={{ position: "absolute", bottom: "120%", left: 0, width: 262,
+                      background: T.white, border: `1px solid ${T.border}`, borderRadius: 12,
+                      boxShadow: "0 6px 24px rgba(61,57,41,0.12)", overflow: "hidden", zIndex: 30 }}>
+                      {plusView === "main" ? (
+                        <>
+                          <button onClick={() => fileInputRef.current?.click()}
+                            style={{ display: "flex", alignItems: "center", gap: 10, width: "100%",
+                              textAlign: "left", padding: "10px 14px", background: "none",
+                              border: "none", cursor: "pointer", color: T.text, fontSize: 13.5 }}>
+                            <span style={{ color: T.dim }}><Icon d={I.clip} size={15} /></span>
+                            上传文件或图片
+                            <span style={{ marginLeft: "auto", fontSize: 11, color: T.faint }}>
+                              发送时才生效
+                            </span>
+                          </button>
+                          <button onClick={() => setPlusView("skills")}
+                            aria-haspopup="true"
+                            style={{ display: "flex", alignItems: "center", gap: 10, width: "100%",
+                              textAlign: "left", padding: "10px 14px", background: "none",
+                              border: "none", borderTop: `1px solid ${T.borderSoft}`,
+                              cursor: "pointer", color: T.text, fontSize: 13.5 }}>
+                            <span style={{ color: T.dim }}><Icon d={I.zap} size={15} /></span>
+                            Skills
+                            <span style={{ marginLeft: "auto", display: "flex", alignItems: "center",
+                              gap: 6, color: T.faint }}>
+                              <span style={{ fontSize: 11 }}>
+                                {SLASH_COMMANDS.filter(c => c.source === "skill").length} 个
+                              </span>
+                              <Icon d={I.chev} size={12} />
+                            </span>
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button onClick={() => setPlusView("main")}
+                            style={{ display: "flex", alignItems: "center", gap: 8, width: "100%",
+                              textAlign: "left", padding: "9px 14px", background: T.surface,
+                              border: "none", borderBottom: `1px solid ${T.borderSoft}`,
+                              cursor: "pointer", color: T.dim, fontSize: 12.5 }}>
+                            <span style={{ display: "inline-flex", transform: "rotate(180deg)" }}>
+                              <Icon d={I.chev} size={12} />
+                            </span>
+                            Skills · 选择后插入命令
+                          </button>
+                          {SLASH_COMMANDS.filter(c => c.source === "skill").map(c => (
+                            <button key={c.name}
+                              onClick={() => { setInput("/" + c.name + " "); setPlusOpen(false); }}
+                              style={{ display: "flex", flexDirection: "column", gap: 2, width: "100%",
+                                textAlign: "left", padding: "9px 14px", background: "none",
+                                border: "none", borderBottom: `1px solid ${T.borderSoft}`,
+                                cursor: "pointer" }}>
+                              <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                <code style={{ fontFamily: T.mono, fontSize: 12.5, color: T.accent }}>
+                                  /{c.name}</code>
+                                {c.hint && <span style={{ fontFamily: T.mono, fontSize: 11,
+                                  color: T.faint }}>{c.hint}</span>}
+                              </span>
+                              <span style={{ fontSize: 11.5, color: T.dim }}>{c.desc}</span>
+                            </button>
+                          ))}
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
                 {scenario ? (
                   <span title="场景模板已锁定模型与工具范围"
                     style={{ fontSize: 12, color: T.faint, border: `1px solid ${T.borderSoft}`,
@@ -1511,11 +1755,11 @@ export default function AgentChat() {
                       <Icon d={I.stop} size={12} /> 停止
                     </button>
                   ) : (
-                    <button onClick={() => send()} disabled={!input.trim() || busyElsewhere}
+                    <button onClick={() => send()} disabled={(!input.trim() && !pending.length) || busyElsewhere}
                       aria-label="发送"
                       title={busyElsewhere ? "另一个会话正在生成，请先停止或等待完成" : ""}
-                      style={{ ...btn(input.trim() && !busyElsewhere ? T.accent : "#E4E0D3",
-                        input.trim() && !busyElsewhere ? "#FFF" : T.faint), display: "flex",
+                      style={{ ...btn((input.trim() || pending.length) && !busyElsewhere ? T.accent : "#E4E0D3",
+                        (input.trim() || pending.length) && !busyElsewhere ? "#FFF" : T.faint), display: "flex",
                         alignItems: "center", gap: 6 }}>
                       <Icon d={I.send} size={13} /> 发送
                     </button>
